@@ -40,13 +40,14 @@ class Autonomousmode:
         #self.close_contour = 175019
         self.arrow_wait_search_sec = 5
         self.bar = 0.7
+        self.wait_start = 15
         self.wait_time_path = 5      
         self.frame = None
-        self.left90deg = 2.55            #Turn 90 degree sec
-        self.right90deg = 2.55   
+        self.left90deg = 4            #Turn 90 degree sec
+        self.right90deg = 4   
         self.var=0                              #Function to count left anf right dir 
-        self.bbox_detect_start=0.004
-        self.bbox_detect_stop=0.02
+        self.bbox_detect_start=0.01
+        self.bbox_detect_stop=0.03
         self.image_subscriber = rospy.Subscriber('/usb_cam/image_raw/compressed', CompressedImage, self.callback)
         #this part needed to be optimised for ros
         #self.f_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -200,7 +201,7 @@ class Autonomousmode:
         return ratio
         
     def move_forward(self):
-        self.Twist_node.linear.x = 0.5
+        self.Twist_node.linear.x = 0.4
         print("Moving Front...")
         self.twist_publisher.publish(self.Twist_node)
     
@@ -274,12 +275,12 @@ class Autonomousmode:
 
     def turn_left(self):
         self.Twist_node.linear.x = 0
-        self.Twist_node.angular.z = -0.5
+        self.Twist_node.angular.z = -0.7
         self.twist_publisher.publish(self.Twist_node)
     
     def turn_right(self):
         self.Twist_node.linear.x = 0
-        self.Twist_node.angular.z = 0.5
+        self.Twist_node.angular.z = 0.7
         self.twist_publisher.publish(self.Twist_node)
     
     def turn_left_slow(self):
@@ -329,8 +330,25 @@ class Autonomousmode:
         self.turn_left()
         rospy.sleep(self.left90deg)
         self.stop()
-        self.move_forward()  #The move forward - is programmed to only operate with the first detected box and wont work with multiple
-        
+        leftmost = 0
+        co_ord=None
+        start_time = self.what_time()
+        while (self.what_time() - start_time) < self.arrow_wait_search_sec:                 #Search in wide angle 
+            bbox3 = self.process_frame(self.frame)
+            print('some left object detected')
+            if bbox3:
+                for detect in bbox3:
+                    x1, y1, x2, y2, score, class_id , dir = detect
+                    if (x1+x2)/2 < leftmost:
+                        leftmost = (x1+x2)/2
+                        co_ord=[x1,y1,x2,y2]
+        if co_ord is not None:
+            x1,y1,x2,y2=co_ord    
+            self.align(x1,y1,x2,y2)
+            self.move_forward()  #The move forward - is programmed to only operate with the first detected box and wont work with multiple
+            
+        if co_ord is None:
+            self.blind_move()
             
 
     
@@ -341,9 +359,27 @@ class Autonomousmode:
         self.turn_right()
         rospy.sleep(self.right90deg)
         self.stop()
-        self.move_forward()   #The move forward - is programmed to only operate with the first detected box and wont work with multiple which is most probable here
+        rightmost = 0
+        co_ord=None                                        #Search in wide angle CAM
+        start_time = self.what_time()
+        while (self.what_time() - start_time) < self.arrow_wait_search_sec:    
+            bbox3 = self.process_frame(self.frame)
+            print('some right object detected')
+            if bbox3:
+                for detect in bbox3:
+                    x1, y1, x2, y2, score, class_id , dir = detect
+                    #DetectedBBOX               
+                    if (x1+x2)/2 > rightmost:
+                        rightmost = (x1+x2)/2
+                        co_ord=[x1,y1,x2,y2]
+                        #Lower Detected
+        if co_ord is not None:
+            x1,y1,x2,y2=co_ord    
+            self.align(x1,y1,x2,y2)
+            self.move_forward()   #The move forward - is programmed to only operate with the first detected box and wont work with multiple which is most probable here
         
-
+        if co_ord is None:
+            self.blind_move()
 
     def search(self):
         pass
@@ -361,6 +397,7 @@ class Autonomousmode:
                 #rospy.sleep(2)
                 self.move_rover()
                 break
+            print(bbox4)
         print("At start . rover moves forward by default")
     
 
